@@ -13,10 +13,11 @@ license = [
   "SPDX:GPL-3.0-or-later",
 ]
 
+# pip download protobuf --dest ./wheels
 wheels = [
    "./wheels/protobuf-7.36.2-cp310-abi3-manylinux2014_x86_64.whl",
 ]
 
 [permissions]
 network = "Need to sync with your Taack PLM server"
-files = "Read current model and links in order to Upload "
+files = "Read current model and links in order to Upload"
