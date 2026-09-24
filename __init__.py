@@ -1,4 +1,4 @@
-import bpy, os, requests, uuid
+import bpy, os, requests, uuid, sys
 
 from bpy.props import (StringProperty,
                        PointerProperty,
@@ -16,9 +16,29 @@ taackIcons = bpy.utils.previews.new()
 taackIntranetSession = requests.session()
 connected = None
 
+class TaackPlmPreferences(bpy.types.AddonPreferences):
+    bl_idname = __package__ if __package__ else os.path.splitext(os.path.basename(__file__))[0]
+
+    serverUrl: bpy.props.StringProperty(
+        name="Server URL",
+        description="The Server URL Address",
+        default="http://localhost:9442/"
+    )
+    username: bpy.props.StringProperty(
+        name="Username",
+        description="Username",
+        default="admin"
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Global configuration :")
+        layout.prop(self, "serverUrl")
+        layout.prop(self, "username")
+
+
+
 class TaackPlmProperties(PropertyGroup):
-    serverUrl: StringProperty(name="ServerUrl", description="Server URL")
-    username: StringProperty(name="Username", description="Username on the server")
     password: StringProperty(name="Password", subtype="PASSWORD", description="Password ...")
 
 
@@ -29,16 +49,16 @@ class TaackPlmConnect(Operator):
 
     def execute(self, context):
         scene = context.scene
-        taack_tool = scene.taack_tool
-
+        taack_props = scene.taack_props
+        taack_prefs = context.preferences.addons[TaackPlmPreferences.bl_idname].preferences
         global connected
 
-        data = {"username": taack_tool.username, "password": taack_tool.password, "ajax": 'true'}
+        data = {"username": taack_prefs.username, "password": taack_props.password, "ajax": 'true'}
         try:
-            r = taackIntranetSession.post(url=taack_tool.serverUrl + 'login/authenticate', data=data, timeout=5)
+            r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'login/authenticate', data=data, timeout=5)
             if r.json()["success"]:
                 connected = True
-                self.report({"INFO"}, "Connected to server: " + taack_tool.serverUrl)
+                self.report({"INFO"}, "Connected to server: " + taack_prefs.serverUrl)
             else:
                 self.report({"ERROR"}, "Connection failed: " + r.json()["message"])
                 connected = False
@@ -56,7 +76,7 @@ class TaackPlmUpload(Operator):
 
     def execute(self, context):
         scene = context.scene
-        taack_tool = scene.taack_tool
+        taack_props = scene.taack_props
 
         return {"FINISHED"}
 
@@ -81,14 +101,13 @@ class TAACK_PT_panel(Panel):
 
 
     def draw(self, context):
-        print("DRAWWWWW " + str(connected))
         layout = self.layout
         scene = context.scene
-        taack_tool = scene.taack_tool
+        taack_props = scene.taack_props
 
-        layout.prop(taack_tool, "serverUrl")
-        layout.prop(taack_tool, "username")
-        layout.prop(taack_tool, "password")
+        # layout.prop(taack_props, "serverUrl")
+        # layout.prop(taack_props, "username")
+        layout.prop(taack_props, "password")
         layout.separator()
         op_row_upload = layout.row()
         op_row_connect = layout.row()
@@ -105,6 +124,7 @@ class TAACK_PT_panel(Panel):
 
 # Register/unregister
 classes = (
+    TaackPlmPreferences,
     TaackPlmProperties,
     TaackPlmConnect,
     TaackPlmUpload,
@@ -117,7 +137,7 @@ def register():
     for cls in classes:
         register_class(cls)
 
-    bpy.types.Scene.taack_tool = PointerProperty(type=TaackPlmProperties)
+    bpy.types.Scene.taack_props = PointerProperty(type=TaackPlmProperties)
     addon_dir = os.path.dirname(__file__)
     icon_path = os.path.join(addon_dir, "taackPLM.png")
     taackIcons.load("taack_plm", icon_path, 'IMAGE')
@@ -128,7 +148,7 @@ def unregister():
     for cls in classes:
         unregister_class(cls)
 
-    del bpy.types.Scene.taack_tool
+    del bpy.types.Scene.taack_props
     bpy.utils.previews.remove(taackIcons)
 
 if __name__ == "__main__":
