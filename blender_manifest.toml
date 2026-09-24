@@ -1,0 +1,22 @@
+schema_version = "1.0.0"
+
+id = "taack_plm_blender"
+version = "1.0.0"
+name = "Sync Blender File With Taack PLM"
+tagline = "Upload, Version"
+maintainer = "Taack"
+type = "add-on"
+
+blender_version_min = "5.2.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+wheels = [
+   "./wheels/protobuf-7.36.2-cp310-abi3-manylinux2014_x86_64.whl",
+]
+
+[permissions]
+network = "Need to sync with your Taack PLM server"
+files = "Read current model and links in order to Upload "
