@@ -1,4 +1,4 @@
-import bpy, os, requests, uuid, sys
+import bpy, os, requests, uuid, sys, getpass
 
 from bpy.props import (StringProperty,
                        PointerProperty,
@@ -11,6 +11,12 @@ from bpy.types import (Panel,
                        )
 
 import bpy.utils.previews
+
+try:
+    from . import freecad_plm_pb2 as PlmBuf
+except:
+    import freecad_plm_pb2 as PlmBuf
+
 
 taackIcons = bpy.utils.previews.new()
 taackIntranetSession = requests.session()
@@ -78,13 +84,6 @@ class TaackPlmUpload(Operator):
     bl_idname = "taack.plm_fork_upload"
     bl_description = "Upload saved model to the server"
 
-    def __init__(self):
-        self.avoidLoop = None
-        self.uuidVersion = None
-        self.docLabelsForked = None
-        self.forkMode = 'Active'
-
-
     def create_missing_uuid(self, obj, force):
         if force:
             obj['taack_id'] = str(uuid.uuid4())
@@ -97,73 +96,25 @@ class TaackPlmUpload(Operator):
         for l in linked_objects:
             self.create_link_protobuf(l, force)
 
-    def create_bucket_protobuf(self, obj):
-        print("createBucketProtobuf")
-        self.avoidLoop = []
-        d = bpy.data
-        c = bpy.context
-        if d.filepath != "":
-            bucket = PlmBuf.Bucket()
-            self.create_missing_uuid(c.active_object, False)
-            bpy.ops.wm.save_as_mainfile(d.filepath)
-            create_doc_protobuf(c.active_object, bucket)
-            return bucket
-        else:
-            self.report({"INFO"}, "Save the file before uploading !")
-
-        linked_objects = iter(obj.children)
-        for l in linked_objects:
-            self.create_bucket_protobuf(l)
-
-        return None
-
-    def create_doc_protobuf(self, obj, bucket):
-        print("createDocProtobuf " + obj.name)
-        try:
-            if self.avoidLoop.count(obj.name) > 0:
-                return None
-            self.avoidLoop.append(obj.name)
-            plm_file = PlmBuf.PlmFile()
-            s = os.stat(obj.filepath)
-            plm_file.cTimeNs = s.st_ctime_ns
-            plm_file.uTimeNs = s.st_mtime_ns
-            plm_file.name = obj.name
-
-            plm_file.id = obj['taack_id']
-            print("plmFile.id " + plm_file.id)
-
-            plm_file.label = obj.Label
-            plm_file.comment = obj.Comment
-            plm_file.fileName = os.path.basename(obj.filepath)
-            plm_file.createdDate = obj.CreationDate
-            plm_file.createdBy = bpy.context.preferences.filepaths.author
-            plm_file.lastModifiedDate = os.path.getctime(obj.filepath)
-            plm_file.lastModifiedBy = os.path.getctime(obj.filepath)
-            linked_objects = iter(obj.children)
-            for l in linked_objects:
-                lp = self.create_link_protobuf(l, bucket)
-                if lp is not None:
-                    plm_file.externalLink.append(lp)
-
-            plm_file.fileContent = open(obj.filepath, 'rb').read()
-            bucket.plmFiles[plm_file.name].CopyFrom(plm_file)
-        except:
-            self.report({"ERROR"}, "Error creating protobuf file !")
-
-        return obj.name
-
-    def create_link_protobuf(self, obj, bucket):
+    def create_link_protobuf(self, rootpath, obj, bucket):
         print("createLinkProtobuf " + obj.name)
         try:
+            filepath = os.path.join(rootpath, obj.filepath.replace('//', ''))
             plm_link = PlmBuf.PlmLink()
             plm_link.linkedObject = obj.name
             plm_link.linkClaimChild = False
             plm_link.linkCopyOnChange = PlmBuf.PlmLink.LinkCopyOnChangeEnum.Disabled
             plm_link.linkTransform = False
-            f = create_doc_protobuf(obj.LinkedObject.Document, bucket)
-            if f is None:
-                return None
-            plm_link.plmFile = f
+            plm_file = PlmBuf.PlmFile()
+            s = os.stat(filepath)
+            plm_file.cTimeNs = s.st_ctime_ns
+            plm_file.uTimeNs = s.st_mtime_ns
+            plm_file.name = obj.name
+            plm_file.fileName = os.path.basename(filepath)
+            #plm_file.lastModifiedDate = str(datetime.datetime.strptime(os.path.getctime(bpy.data.filepath), "%a %b %d %H:%M:%S %Y"))
+            #plm_file.lastModifiedBy = str(datetime.datetime.strptime(os.path.getctime(bpy.data.filepath), "%a %b %d %H:%M:%S %Y"))
+            plm_file.fileContent = open(filepath, 'rb').read()
+            plm_link.plmFile = obj.name
             bucket.links[obj.name].CopyFrom(plm_link)
         except:
             raise ValueError("createLinkProtobuf Error")
@@ -172,43 +123,74 @@ class TaackPlmUpload(Operator):
 
     def execute(self, context):
         print("Execute TaackPlmUpload")
-        scene = context.scene
-        taack_props = scene.taack_props
+        if not connected:
+            self.report({"ERROR"}, "Not connected to the server")
+            return {"CANCELLED"}
 
         deps = bpy.context.evaluated_depsgraph_get()
-        filsetpathSet = set()
-        filsetpathSet.add(bpy.data.filepath)
+        filepath_set = set()
+        filepath_set.add(bpy.data.filepath)
+        bucket = PlmBuf.Bucket()
+        plm_file = PlmBuf.PlmFile()
+        s = os.stat(bpy.data.filepath)
+        plm_file.cTimeNs = s.st_ctime_ns
+        plm_file.uTimeNs = s.st_mtime_ns
+        plm_file.name = bpy.context.active_object.name
+        plm_file.fileName = os.path.basename(bpy.data.filepath)
+        plm_file.createdBy = getpass.getuser()
+        #plm_file.lastModifiedDate = str(datetime.datetime.strptime(os.path.getctime(bpy.data.filepath), "%a %b %d %H:%M:%S %Y"))
+        #plm_file.lastModifiedBy = str(datetime.datetime.strptime(os.path.getctime(bpy.data.filepath), "%a %b %d %H:%M:%S %Y"))
+
         for obj in deps.ids:
             print(str(obj))
             # For images and so on ...
-            if hasattr(obj, 'filepath') and not obj.filepath in filsetpathSet:
-                filsetpathSet.add(obj.filepath)
+            if hasattr(obj, 'filepath') and not obj.filepath in filepath_set:
+                filepath_set.add(obj.filepath)
+                self.create_link_protobuf(os.path.dirname(bpy.data.filepath), obj, bucket)
+                if obj.name is not None:
+                    plm_file.externalLink.append(obj.name)
 
-            if obj.library and not obj.library.filepath in filsetpathSet:
-                filsetpathSet.add(obj.library.filepath)
+            if obj.library and not obj.library.filepath in filepath_set:
+                filepath_set.add(obj.library.filepath)
+                self.create_link_protobuf(os.path.dirname(bpy.data.filepath), obj.library, bucket)
+                if obj.library.name is not None:
+                    plm_file.externalLink.append(obj.library.name)
 
-        print(filsetpathSet)
+        plm_file.fileContent = open(bpy.data.filepath, 'rb').read()
+        bucket.plmFiles[plm_file.name].CopyFrom(plm_file)
 
-        return {"FINISHED"}
-    #     scene = context.scene
-    # if not connected:
-    #     self.report({"ERROR"}, "Not connected to the server")
-    #     return False
-    #
-    # b = self.create_bucket_protobuf()
-    # f = open("bl_proto", 'wb')
-    # f.write(b.SerializeToString())
-    # f.close()
-    # data = {"ajax": 'true'}
-    # f2 = open("bl_proto", 'rb')
-    # r = self.po.taackIntranetSession.post(url=self.po.url + 'plm/uploadProto', files={'proto.bin': f2}, data=data)
-    # f2.close()
-    #
-    # if r.json()["success"]:
-    #     return True
-    # else:
-    #     self.report({"ERROR"}, "Message does not successfully sent: " + r.json()["message"])
-    #     return False
+        for obj in deps.ids:
+            print(str(obj))
+            # For images and so on ...
+            if hasattr(obj, 'filepath') and not obj.filepath in filepath_set:
+                filepath_set.add(obj.filepath)
+                self.create_link_protobuf(obj, bucket)
+
+            if obj.library and not obj.library.filepath in filepath_set:
+                filepath_set.add(obj.library.filepath)
+                self.create_link_protobuf(obj.library, bucket)
+
+        print(filepath_set)
+        if len(filepath_set) == 0:
+            self.report({"ERROR"}, "Filset path set is empty")
+            return {"CANCELLED"}
+
+        f = open("bl_proto", 'wb')
+        f.write(bucket.SerializeToString())
+        f.close()
+        data = {"ajax": 'true'}
+        f2 = open("bl_proto", 'rb')
+
+        taack_prefs = context.preferences.addons[TaackPlmPreferences.bl_idname].preferences
+
+        r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plm/uploadProto', files={'proto.bin': f2}, data=data)
+        f2.close()
+
+        if r.json()["success"]:
+            return {"FINISHED"}
+        else:
+            self.report({"ERROR"}, "Message does not successfully sent: " + r.json()["message"])
+            return {"CANCELLED"}
 
 
 class TaackPlmForkRecent(Operator):
