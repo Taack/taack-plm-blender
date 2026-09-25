@@ -73,7 +73,6 @@ class TaackPlmConnect(Operator):
         return {"FINISHED"}
 
 
-
 class TaackPlmUpload(Operator):
     bl_label = "Upload To Server"
     bl_idname = "taack.plm_fork_upload"
@@ -172,25 +171,44 @@ class TaackPlmUpload(Operator):
         return obj.name
 
     def execute(self, context):
+        print("Execute TaackPlmUpload")
         scene = context.scene
-        if not connected:
-            self.report({"ERROR"}, "Not connected to the server")
-            return False
+        taack_props = scene.taack_props
 
-        b = self.create_bucket_protobuf()
-        f = open("bl_proto", 'wb')
-        f.write(b.SerializeToString())
-        f.close()
-        data = {"ajax": 'true'}
-        f2 = open("bl_proto", 'rb')
-        r = self.po.taackIntranetSession.post(url=self.po.url + 'plm/uploadProto', files={'proto.bin': f2}, data=data)
-        f2.close()
+        deps = bpy.context.evaluated_depsgraph_get()
+        filsetpathSet = set()
+        filsetpathSet.add(bpy.data.filepath)
+        for obj in deps.ids:
+            print(str(obj))
+            # For images and so on ...
+            if hasattr(obj, 'filepath') and not obj.filepath in filsetpathSet:
+                filsetpathSet.add(obj.filepath)
 
-        if r.json()["success"]:
-            return True
-        else:
-            self.report({"ERROR"}, "Message does not successfully sent: " + r.json()["message"])
-            return False
+            if obj.library and not obj.library.filepath in filsetpathSet:
+                filsetpathSet.add(obj.library.filepath)
+
+        print(filsetpathSet)
+
+        return {"FINISHED"}
+    #     scene = context.scene
+    # if not connected:
+    #     self.report({"ERROR"}, "Not connected to the server")
+    #     return False
+    #
+    # b = self.create_bucket_protobuf()
+    # f = open("bl_proto", 'wb')
+    # f.write(b.SerializeToString())
+    # f.close()
+    # data = {"ajax": 'true'}
+    # f2 = open("bl_proto", 'rb')
+    # r = self.po.taackIntranetSession.post(url=self.po.url + 'plm/uploadProto', files={'proto.bin': f2}, data=data)
+    # f2.close()
+    #
+    # if r.json()["success"]:
+    #     return True
+    # else:
+    #     self.report({"ERROR"}, "Message does not successfully sent: " + r.json()["message"])
+    #     return False
 
 
 class TaackPlmForkRecent(Operator):
@@ -217,6 +235,8 @@ class TAACK_PT_panel(Panel):
         scene = context.scene
         taack_props = scene.taack_props
 
+        # layout.prop(taack_props, "serverUrl")
+        # layout.prop(taack_props, "username")
         layout.prop(taack_props, "password")
         layout.separator()
         op_row_upload = layout.row()
