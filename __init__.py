@@ -1,4 +1,4 @@
-import bpy, os, requests, uuid, sys, getpass, json
+import bpy, os, requests, uuid, sys, getpass, json, datetime
 
 from bpy.props import (StringProperty,
                        PointerProperty,
@@ -21,6 +21,7 @@ except:
 taackIcons = bpy.utils.previews.new()
 taackIntranetSession = requests.session()
 connected = None
+simpleDateFormat="%Y-%m-%dT%H:%M:%SZ"
 
 class TaackPlmPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__ if __package__ else os.path.splitext(os.path.basename(__file__))[0]
@@ -117,9 +118,12 @@ class TaackPlmUpload(Operator):
             plm_file.fileName = os.path.basename(filepath)
             #plm_file.lastModifiedDate = str(datetime.datetime.strptime(os.path.getctime(bpy.data.filepath), "%a %b %d %H:%M:%S %Y"))
             #plm_file.lastModifiedBy = str(datetime.datetime.strptime(os.path.getctime(bpy.data.filepath), "%a %b %d %H:%M:%S %Y"))
+            plm_file.lastModifiedDate = str(datetime.datetime.fromtimestamp(os.path.getmtime(filepath)).strftime(simpleDateFormat))
+            plm_file.createdDate = str(datetime.datetime.fromtimestamp(os.path.getctime(filepath)).strftime(simpleDateFormat))
             plm_file.fileContent = open(filepath, 'rb').read()
             plm_link.plmFile = obj.name
             bucket.links[obj.name].CopyFrom(plm_link)
+            bucket.plmFiles[plm_file.name].CopyFrom(plm_file)
         except:
             raise ValueError("createLinkProtobuf Error")
 
@@ -145,8 +149,8 @@ class TaackPlmUpload(Operator):
         plm_file.fileName = os.path.basename(bpy.data.filepath)
         plm_file.createdBy = getpass.getuser()
         plm_file.id = bpy.context.active_object['taack_id']
-        #plm_file.lastModifiedDate = str(datetime.datetime.strptime(os.path.getctime(bpy.data.filepath), "%a %b %d %H:%M:%S %Y"))
-        #plm_file.lastModifiedBy = str(datetime.datetime.strptime(os.path.getctime(bpy.data.filepath), "%a %b %d %H:%M:%S %Y"))
+        plm_file.lastModifiedDate = str(datetime.datetime.fromtimestamp(os.path.getmtime(bpy.data.filepath)).strftime(simpleDateFormat))
+        plm_file.createdDate = str(datetime.datetime.fromtimestamp(os.path.getctime(bpy.data.filepath)).strftime(simpleDateFormat))
 
         for obj in deps.ids:
             print(str(obj))
@@ -154,16 +158,21 @@ class TaackPlmUpload(Operator):
             if hasattr(obj, 'filepath') and not obj.filepath in filepath_set:
                 filepath_set.add(obj.filepath)
                 self.create_missing_uuid(obj, False)
-                self.create_link_protobuf(os.path.dirname(bpy.data.filepath), obj, bucket)
-                if obj.name is not None:
-                    plm_file.externalLink.append(obj.name)
+                linkName = self.create_link_protobuf(os.path.dirname(bpy.data.filepath), obj, bucket)
+                if linkName is not None:
+                    plm_file.externalLink.append(linkName)
+                else:
+                    print("linkName1: None ... for " + obj.name)
+
 
             if obj.library and not obj.library.filepath in filepath_set:
                 filepath_set.add(obj.library.filepath)
                 self.create_missing_uuid(obj.library, False)
-                self.create_link_protobuf(os.path.dirname(bpy.data.filepath), obj.library, bucket)
-                if obj.library.name is not None:
-                    plm_file.externalLink.append(obj.library.name)
+                linkName = self.create_link_protobuf(os.path.dirname(bpy.data.filepath), obj.library, bucket)
+                if linkName is not None:
+                    plm_file.externalLink.append(linkName)
+                else:
+                    print("linkName2: None ... for " + obj.name)
 
         plm_file.fileContent = open(bpy.data.filepath, 'rb').read()
         bucket.plmFiles[plm_file.name].CopyFrom(plm_file)
