@@ -1,4 +1,5 @@
 import bpy, os, requests, uuid, sys, getpass, json, datetime
+import hashlib
 
 from bpy.props import (StringProperty,
                        PointerProperty,
@@ -85,6 +86,9 @@ class TaackPlmUpload(Operator):
     bl_idname = "taack.plm_fork_upload"
     bl_description = "Upload saved model to the server"
 
+    def __init__(self):
+        self.shaOneMap = None
+
     def create_missing_uuid(self, obj, force):
         uuid4 = str(uuid.uuid4())
         if force:
@@ -96,6 +100,18 @@ class TaackPlmUpload(Operator):
                 obj['taack_id'] = obj['taack_id'] + '/' + uuid4
 
         print("create_missing_uuid " + obj['taack_id'])
+
+    def compute_file_shaOne(self, filePath):
+        sha1 = hashlib.sha1()
+        with open(filePath, 'rb') as f:
+            while True:
+                data = f.read(65536)
+                if not data:
+                    break
+                sha1.update(data)
+
+        return sha1.hexdigest()
+
 
     def create_link_protobuf(self, rootpath, obj, bucket):
         print("createLinkProtobuf " + obj.name)
@@ -120,7 +136,9 @@ class TaackPlmUpload(Operator):
             #plm_file.lastModifiedBy = str(datetime.datetime.strptime(os.path.getctime(bpy.data.filepath), "%a %b %d %H:%M:%S %Y"))
             plm_file.lastModifiedDate = str(datetime.datetime.fromtimestamp(os.path.getmtime(filepath)).strftime(simpleDateFormat))
             plm_file.createdDate = str(datetime.datetime.fromtimestamp(os.path.getctime(filepath)).strftime(simpleDateFormat))
-            plm_file.fileContent = open(filepath, 'rb').read()
+            # plm_file.fileContent = open(filepath, 'rb').read()
+            plm_file.sha1hex = self.compute_file_shaOne(filepath)
+            self.shaOneMap[plm_file.sha1hex] = filepath
             plm_link.plmFile = obj.name
             bucket.links[obj.name].CopyFrom(plm_link)
             bucket.plmFiles[plm_file.name].CopyFrom(plm_file)
@@ -135,7 +153,7 @@ class TaackPlmUpload(Operator):
         if not connected:
             self.report({"ERROR"}, "Not connected to the server")
             return {"CANCELLED"}
-
+        self.shaOneMap = dict()
         deps = bpy.context.evaluated_depsgraph_get()
         filepath_set = set()
         self.create_missing_uuid(bpy.context.active_object, False)
@@ -174,19 +192,26 @@ class TaackPlmUpload(Operator):
                 else:
                     print("linkName2: None ... for " + obj.name)
 
-        plm_file.fileContent = open(bpy.data.filepath, 'rb').read()
+        # plm_file.fileContent = open(bpy.data.filepath, 'rb').read()
+        plm_file.sha1hex = self.compute_file_shaOne(bpy.data.filepath)
         bucket.plmFiles[plm_file.name].CopyFrom(plm_file)
+        self.shaOneMap[plm_file.sha1hex] = bpy.data.filepath
 
         print(filepath_set)
         if len(filepath_set) == 0:
             self.report({"ERROR"}, "Filset path set is empty")
             return {"CANCELLED"}
 
-        f = open("bl_proto", 'wb')
-        f.write(bucket.SerializeToString())
-        f.close()
+        zip_filename = "tmp-blender-" + str(round(time.time() * 1000)) + ".zip"
+        with zipfile.ZipFile(file=zip_filename, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+                             ) as zip_archive:
+
+            zip_archive.writestr("proto.bin", bucket.SerializeToString())
+            for eShaOne, filename in self.shaOneMap.items():
+                zip_archive.write(filename, eShaOne)
+
         data = {"ajax": 'true'}
-        f2 = open("bl_proto", 'rb')
+        f2 = open(zip_filename, 'rb')
 
         taack_prefs = context.preferences.addons[TaackPlmPreferences.bl_idname].preferences
         try:
