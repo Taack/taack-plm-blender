@@ -11,6 +11,7 @@ from bpy.types import (Panel,
                        Panel,
                        )
 from PIL import Image
+from io import BytesIO
 import bpy.utils.previews
 
 try:
@@ -210,22 +211,56 @@ class TaackPlmUpload(Operator):
             self.report({"ERROR"}, "Filset path set is empty")
             return {"CANCELLED"}
 
-        zip_filename = "tmp-blender-" + str(round(time.time() * 1000)) + ".zip"
+        zip_filename = "tmp-blender-proto-" + str(round(time.time() * 1000)) + ".zip"
         with zipfile.ZipFile(file=zip_filename, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
                              ) as zip_archive:
-
             zip_archive.writestr("proto.bin", bucket.SerializeToString())
-            for eShaOne, filename in self.shaOneMap.items():
-                zip_archive.write(filename, eShaOne)
 
         data = {"ajax": 'true'}
         f2 = open(zip_filename, 'rb')
 
         taack_prefs = context.preferences.addons[TaackPlmPreferences.bl_idname].preferences
         try:
-            r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plm/uploadProto', files={'proto.bin': f2}, data=data)
+            r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/uploadProto', files={'proto.bin': f2}, data=data)
             f2.close()
-            if r.json()["success"]:
+
+            respBytes = BytesIO(r.content).read()
+            respBucket = PlmBuf.Bucket()
+            respBucket.ParseFromString(respBytes)
+
+            if respBucket.status == PlmBuf.ServerStatus.OK_PROTO:
+                for serverSha1File in respBucket.serverSha1Files:
+                    if serverSha1File in self.shaOneMap:
+                        print("Removing:" + self.shaOneMap.pop(serverSha1File) + " from files to upload ... " + serverSha1File)
+                    else:
+                        print("NO KEY:" + serverSha1File + " ... ")
+
+                nbItems = len(self.shaOneMap.items())
+                nb16Interval = nbItems // 16
+                print("nbItems: " + str(nbItems))
+                if nbItems > 0:
+                    for i in range(nb16Interval + 1):
+                        zip_filename = "tmp-blender-16files" + str(i) + "-" + str(round(time.time() * 1000)) + ".zip"
+                        with zipfile.ZipFile(file=zip_filename, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+                                             ) as zip_archive:
+                            for j in range(16):
+                                if len(self.shaOneMap) > 0:
+                                    eShaOne, filename = self.shaOneMap.popitem()
+                                    zip_archive.write(filename, eShaOne)
+
+                            try:
+                                f2 = open(zip_filename, 'rb')
+                                r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/uploadZip', files={'proto.bin': f2}, data=data)
+                                respBytes = BytesIO(r.content).read()
+                                respBucket = PlmBuf.Bucket().ParseFromString(respBytes)
+                                if respBucket.status != PlmBuf.ServerStatus.OK_FILES:
+                                    self.report({"ERROR"}, "Message does not successfully sent: " + r.json()["message"])
+                                    return {"CANCELLED"}
+                            except Exception as ex:
+                                self.report({"ERROR"}, "Server seems to be disconnected ... ")
+                                connected = False
+
+                r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/reset', data=data)
                 return {"FINISHED"}
             else:
                 self.report({"ERROR"}, "Message does not successfully sent: " + r.json()["message"])
@@ -267,7 +302,7 @@ class TAACK_PT_panel(Panel):
         op_row_connect = layout.row()
         if connected:
             op_row_upload.enabled = True
-            op_row_connect.enabled = False
+            op_row_connect.enabled = True
         else:
             op_row_upload.enabled = False
             op_row_connect.enabled = True
