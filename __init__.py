@@ -1,4 +1,4 @@
-import bpy, os, requests, uuid, sys, getpass, json, datetime
+import bpy, os, requests, uuid, sys, getpass, json, datetime, time, zipfile
 import hashlib
 
 from bpy.props import (StringProperty,
@@ -10,7 +10,7 @@ from bpy.types import (Panel,
                        Operator,
                        Panel,
                        )
-
+from PIL import Image
 import bpy.utils.previews
 
 try:
@@ -86,9 +86,6 @@ class TaackPlmUpload(Operator):
     bl_idname = "taack.plm_fork_upload"
     bl_description = "Upload saved model to the server"
 
-    def __init__(self):
-        self.shaOneMap = None
-
     def create_missing_uuid(self, obj, force):
         uuid4 = str(uuid.uuid4())
         if force:
@@ -127,6 +124,7 @@ class TaackPlmUpload(Operator):
             plm_link.linkTransform = False
             plm_file = PlmBuf.PlmFile()
             plm_file.id = obj['taack_id']
+            plm_file.label = obj.filepath
             s = os.stat(filepath)
             plm_file.cTimeNs = s.st_ctime_ns
             plm_file.uTimeNs = s.st_mtime_ns
@@ -147,6 +145,14 @@ class TaackPlmUpload(Operator):
 
         return obj.name
 
+    def create_thumbnail(self):
+        scene = bpy.context.scene
+        scene.render.image_settings.file_format = 'WEBP'
+        scene.render.filepath = "preview/br.webp"
+        bpy.ops.render.opengl(write_still=True)
+        return open("preview/br.webp", 'rb').read()
+
+
     def execute(self, context):
         print("Execute TaackPlmUpload")
         global connected
@@ -166,7 +172,9 @@ class TaackPlmUpload(Operator):
         plm_file.name = bpy.context.active_object.name
         plm_file.fileName = os.path.basename(bpy.data.filepath)
         plm_file.createdBy = getpass.getuser()
+        plm_file.label = os.path.basename(bpy.data.filepath)
         plm_file.id = bpy.context.active_object['taack_id']
+        plm_file.filePreview = self.create_thumbnail()
         plm_file.lastModifiedDate = str(datetime.datetime.fromtimestamp(os.path.getmtime(bpy.data.filepath)).strftime(simpleDateFormat))
         plm_file.createdDate = str(datetime.datetime.fromtimestamp(os.path.getctime(bpy.data.filepath)).strftime(simpleDateFormat))
 
@@ -299,3 +307,7 @@ def unregister():
 
 if __name__ == "__main__":
     register()
+
+
+# pip download protobuf --dest ./wheels
+# blender --command extension build
