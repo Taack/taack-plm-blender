@@ -8,7 +8,6 @@ from bpy.props import (StringProperty,
 from bpy.types import (Panel,
                        PropertyGroup,
                        Operator,
-                       Panel,
                        )
 from PIL import Image
 from io import BytesIO
@@ -76,7 +75,7 @@ class TaackPlmConnect(Operator):
                 self.report({"ERROR"}, "Connection failed: " + r.json()["message"])
                 connected = False
         except:
-            self.report({"ERROR"}, "Connection failed with an unexpected error: " + sys.exc_info()[0])
+            self.report({"ERROR"}, "Connection failed with an unexpected error: " + str(sys.exc_info()[0]))
 
         # context.area.tag_redraw()
         return {"FINISHED"}
@@ -270,14 +269,14 @@ class TaackPlmUpload(Operator):
             connected = False
 
 
-class TaackPlmForkRecent(Operator):
-    bl_label = "Duplicate History"
-    bl_idname = "taack.plm_fork_recent"
-    bl_description = "Create a new history for this model"
-
-    def execute(self, context):
-        self.report({"INFO"}, "Forked model, you can upload!")
-        return {"FINISHED"}
+# class TaackPlmForkRecent(Operator):
+#     bl_label = "Duplicate History"
+#     bl_idname = "taack.plm_fork_recent"
+#     bl_description = "Create a new history for this model"
+#
+#     def execute(self, context):
+#         self.report({"INFO"}, "Forked model, you can upload!")
+#         return {"FINISHED"}
 
 
 # Panel: where the button appears
@@ -308,7 +307,7 @@ class TAACK_PT_panel(Panel):
             op_row_connect.enabled = True
         op_row_connect.operator("taack.plm_fork_connect", icon_value=taackIcons["taack_plm"].icon_id)
         op_row_upload.operator("taack.plm_fork_upload", icon="FILE_REFRESH")
-        layout.operator("taack.plm_fork_recent", icon="COPY_ID")
+        #layout.operator("taack.plm_fork_recent", icon="COPY_ID")
 
 
 # Register/unregister
@@ -317,7 +316,7 @@ classes = (
     TaackPlmProperties,
     TaackPlmConnect,
     TaackPlmUpload,
-    TaackPlmForkRecent,
+    # TaackPlmForkRecent,
     TAACK_PT_panel,
 )
 
