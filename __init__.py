@@ -247,17 +247,18 @@ class TaackPlmUpload(Operator):
                                     eShaOne, filename = self.shaOneMap.popitem()
                                     zip_archive.write(filename, eShaOne)
 
-                            try:
-                                f2 = open(zip_filename, 'rb')
-                                r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/uploadZip', files={'proto.bin': f2}, data=data)
-                                respBytes = BytesIO(r.content).read()
-                                respBucket = PlmBuf.Bucket().ParseFromString(respBytes)
-                                if respBucket.status != PlmBuf.ServerStatus.OK_FILES:
-                                    self.report({"ERROR"}, "Message does not successfully sent: " + r.json()["message"])
-                                    return {"CANCELLED"}
-                            except Exception as ex:
-                                self.report({"ERROR"}, "Server seems to be disconnected ... ")
-                                connected = False
+                        try:
+                            f2 = open(zip_filename, 'rb')
+                            r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/uploadZip', files={'proto.bin': f2}, data=data)
+                            respBytes = BytesIO(r.content).read()
+                            respBucket = PlmBuf.Bucket()
+                            respBucket.ParseFromString(respBytes)
+                            if respBucket.status != PlmBuf.ServerStatus.OK_FILES:
+                                self.report({"ERROR"}, "Message does not successfully sent: " + r.json()["message"])
+                                return {"CANCELLED"}
+                        except Exception as ex:
+                            self.report({"ERROR"}, "Server seems to be disconnected ... ")
+                            connected = False
 
                 r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/reset', data=data)
                 return {"FINISHED"}
