@@ -1,4 +1,4 @@
-import bpy, os, requests, uuid, sys, getpass, json, datetime, time, zipfile
+import bpy, os, requests, uuid, sys, getpass, json, datetime, time, zipfile, subprocess
 import hashlib
 
 from bpy.props import (StringProperty,
@@ -125,6 +125,11 @@ class TaackPlmUpload(Operator):
             plm_file = PlmBuf.PlmFile()
             plm_file.id = obj['taack_id']
             plm_file.label = obj.filepath
+            if obj.filepath.endswith(".blend"):
+                subprocess.run(["blender-thumbnailer", filepath, "preview/br.png"])
+                plm_file.filePreview = open("preview/br.png", 'rb').read()
+
+
             s = os.stat(filepath)
             plm_file.cTimeNs = s.st_ctime_ns
             plm_file.uTimeNs = s.st_mtime_ns
@@ -145,8 +150,7 @@ class TaackPlmUpload(Operator):
 
         return obj.name
 
-    def create_thumbnail(self):
-        scene = bpy.context.scene
+    def create_thumbnail(self, scene):
         scene.render.image_settings.file_format = 'WEBP'
         scene.render.filepath = "preview/br.webp"
         bpy.ops.render.opengl(write_still=True)
@@ -180,7 +184,7 @@ class TaackPlmUpload(Operator):
         plm_file.createdBy = getpass.getuser()
         plm_file.label = os.path.basename(bpy.data.filepath)
         plm_file.id = bpy.context.active_object['taack_id']
-        plm_file.filePreview = self.create_thumbnail()
+        plm_file.filePreview = self.create_thumbnail(bpy.context.scene)
         plm_file.lastModifiedDate = str(datetime.datetime.fromtimestamp(os.path.getmtime(bpy.data.filepath)).strftime(simpleDateFormat))
         plm_file.createdDate = str(datetime.datetime.fromtimestamp(os.path.getctime(bpy.data.filepath)).strftime(simpleDateFormat))
 
