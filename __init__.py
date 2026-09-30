@@ -1,4 +1,5 @@
-import bpy, os, requests, uuid, sys, getpass, json, datetime
+import bpy, os, requests, uuid, sys, getpass, json, datetime, time, zipfile, subprocess
+import hashlib
 
 from bpy.props import (StringProperty,
                        PointerProperty,
@@ -7,9 +8,9 @@ from bpy.props import (StringProperty,
 from bpy.types import (Panel,
                        PropertyGroup,
                        Operator,
-                       Panel,
                        )
-
+from PIL import Image
+from io import BytesIO
 import bpy.utils.previews
 
 try:
@@ -74,7 +75,7 @@ class TaackPlmConnect(Operator):
                 self.report({"ERROR"}, "Connection failed: " + r.json()["message"])
                 connected = False
         except:
-            self.report({"ERROR"}, "Connection failed with an unexpected error: " + sys.exc_info()[0])
+            self.report({"ERROR"}, "Connection failed with an unexpected error: " + str(sys.exc_info()[0]))
 
         # context.area.tag_redraw()
         return {"FINISHED"}
@@ -97,6 +98,18 @@ class TaackPlmUpload(Operator):
 
         print("create_missing_uuid " + obj['taack_id'])
 
+    def compute_file_shaOne(self, filePath):
+        sha1 = hashlib.sha1()
+        with open(filePath, 'rb') as f:
+            while True:
+                data = f.read(65536)
+                if not data:
+                    break
+                sha1.update(data)
+
+        return sha1.hexdigest()
+
+
     def create_link_protobuf(self, rootpath, obj, bucket):
         print("createLinkProtobuf " + obj.name)
         try:
@@ -111,6 +124,12 @@ class TaackPlmUpload(Operator):
             plm_link.linkTransform = False
             plm_file = PlmBuf.PlmFile()
             plm_file.id = obj['taack_id']
+            plm_file.label = obj.filepath
+            if obj.filepath.endswith(".blend"):
+                subprocess.run(["blender-thumbnailer", filepath, "preview/br.png"])
+                plm_file.filePreview = open("preview/br.png", 'rb').read()
+
+
             s = os.stat(filepath)
             plm_file.cTimeNs = s.st_ctime_ns
             plm_file.uTimeNs = s.st_mtime_ns
@@ -120,7 +139,9 @@ class TaackPlmUpload(Operator):
             #plm_file.lastModifiedBy = str(datetime.datetime.strptime(os.path.getctime(bpy.data.filepath), "%a %b %d %H:%M:%S %Y"))
             plm_file.lastModifiedDate = str(datetime.datetime.fromtimestamp(os.path.getmtime(filepath)).strftime(simpleDateFormat))
             plm_file.createdDate = str(datetime.datetime.fromtimestamp(os.path.getctime(filepath)).strftime(simpleDateFormat))
-            plm_file.fileContent = open(filepath, 'rb').read()
+            # plm_file.fileContent = open(filepath, 'rb').read()
+            plm_file.sha1hex = self.compute_file_shaOne(filepath)
+            self.shaOneMap[plm_file.sha1hex] = filepath
             plm_link.plmFile = obj.name
             bucket.links[obj.name].CopyFrom(plm_link)
             bucket.plmFiles[plm_file.name].CopyFrom(plm_file)
@@ -129,15 +150,28 @@ class TaackPlmUpload(Operator):
 
         return obj.name
 
+    def create_thumbnail(self, scene):
+        scene.render.image_settings.file_format = 'WEBP'
+        scene.render.filepath = "preview/br.webp"
+        bpy.ops.render.opengl(write_still=True)
+        return open("preview/br.webp", 'rb').read()
+
+
     def execute(self, context):
         print("Execute TaackPlmUpload")
+
         global connected
         if not connected:
             self.report({"ERROR"}, "Not connected to the server")
             return {"CANCELLED"}
 
+        self.shaOneMap = dict()
         deps = bpy.context.evaluated_depsgraph_get()
         filepath_set = set()
+        wm = context.window_manager
+        progress = 0
+        steps = 10 + 2 * len(deps.ids)
+        wm.progress_begin(0, steps)
         self.create_missing_uuid(bpy.context.active_object, False)
         filepath_set.add(bpy.data.filepath)
         bucket = PlmBuf.Bucket()
@@ -148,7 +182,9 @@ class TaackPlmUpload(Operator):
         plm_file.name = bpy.context.active_object.name
         plm_file.fileName = os.path.basename(bpy.data.filepath)
         plm_file.createdBy = getpass.getuser()
+        plm_file.label = os.path.basename(bpy.data.filepath)
         plm_file.id = bpy.context.active_object['taack_id']
+        plm_file.filePreview = self.create_thumbnail(bpy.context.scene)
         plm_file.lastModifiedDate = str(datetime.datetime.fromtimestamp(os.path.getmtime(bpy.data.filepath)).strftime(simpleDateFormat))
         plm_file.createdDate = str(datetime.datetime.fromtimestamp(os.path.getctime(bpy.data.filepath)).strftime(simpleDateFormat))
 
@@ -173,26 +209,77 @@ class TaackPlmUpload(Operator):
                     plm_file.externalLink.append(linkName)
                 else:
                     print("linkName2: None ... for " + obj.name)
+            progress += 1
+            wm.progress_update(progress)
 
-        plm_file.fileContent = open(bpy.data.filepath, 'rb').read()
+        # plm_file.fileContent = open(bpy.data.filepath, 'rb').read()
+        plm_file.sha1hex = self.compute_file_shaOne(bpy.data.filepath)
         bucket.plmFiles[plm_file.name].CopyFrom(plm_file)
+        self.shaOneMap[plm_file.sha1hex] = bpy.data.filepath
 
         print(filepath_set)
         if len(filepath_set) == 0:
             self.report({"ERROR"}, "Filset path set is empty")
             return {"CANCELLED"}
 
-        f = open("bl_proto", 'wb')
-        f.write(bucket.SerializeToString())
-        f.close()
+        zip_filename = "tmp-blender-proto-" + str(round(time.time() * 1000)) + ".zip"
+        with zipfile.ZipFile(file=zip_filename, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+                             ) as zip_archive:
+            zip_archive.writestr("proto.bin", bucket.SerializeToString())
+
+        progress += 10
+        wm.progress_update(progress)
+
         data = {"ajax": 'true'}
-        f2 = open("bl_proto", 'rb')
+        f2 = open(zip_filename, 'rb')
 
         taack_prefs = context.preferences.addons[TaackPlmPreferences.bl_idname].preferences
         try:
-            r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plm/uploadProto', files={'proto.bin': f2}, data=data)
+            r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/uploadProto', files={'proto.bin': f2}, data=data)
             f2.close()
-            if r.json()["success"]:
+
+            respBytes = BytesIO(r.content).read()
+            respBucket = PlmBuf.Bucket()
+            respBucket.ParseFromString(respBytes)
+
+            if respBucket.status == PlmBuf.ServerStatus.OK_PROTO:
+                for serverSha1File in respBucket.serverSha1Files:
+                    if serverSha1File in self.shaOneMap:
+                        progress += 1
+                        wm.progress_update(progress)
+                        print("Removing:" + self.shaOneMap.pop(serverSha1File) + " from files to upload ... " + serverSha1File)
+                    else:
+                        print("NO KEY:" + serverSha1File + " ... ")
+                nbItems = len(self.shaOneMap.items())
+                nb16Interval = nbItems // 16
+                print("nbItems: " + str(nbItems))
+                if nbItems > 0:
+                    for i in range(nb16Interval + 1):
+                        zip_filename = "tmp-blender-16files" + str(i) + "-" + str(round(time.time() * 1000)) + ".zip"
+                        with zipfile.ZipFile(file=zip_filename, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+                                             ) as zip_archive:
+                            for j in range(16):
+                                if len(self.shaOneMap) > 0:
+                                    eShaOne, filename = self.shaOneMap.popitem()
+                                    zip_archive.write(filename, eShaOne)
+                                    progress += 1
+                                    wm.progress_update(progress)
+
+                        try:
+                            f2 = open(zip_filename, 'rb')
+                            r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/uploadZip', files={'proto.bin': f2}, data=data)
+                            respBytes = BytesIO(r.content).read()
+                            respBucket = PlmBuf.Bucket()
+                            respBucket.ParseFromString(respBytes)
+                            if respBucket.status != PlmBuf.ServerStatus.OK_FILES:
+                                self.report({"ERROR"}, "Message does not successfully sent: " + r.json()["message"])
+                                return {"CANCELLED"}
+                        except Exception as ex:
+                            self.report({"ERROR"}, "Server seems to be disconnected ... ")
+                            connected = False
+                wm.progress_update(steps)
+                r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/reset', data=data)
+                wm.progress_end()
                 return {"FINISHED"}
             else:
                 self.report({"ERROR"}, "Message does not successfully sent: " + r.json()["message"])
@@ -202,14 +289,14 @@ class TaackPlmUpload(Operator):
             connected = False
 
 
-class TaackPlmForkRecent(Operator):
-    bl_label = "Duplicate History"
-    bl_idname = "taack.plm_fork_recent"
-    bl_description = "Create a new history for this model"
-
-    def execute(self, context):
-        self.report({"INFO"}, "Forked model, you can upload!")
-        return {"FINISHED"}
+# class TaackPlmForkRecent(Operator):
+#     bl_label = "Duplicate History"
+#     bl_idname = "taack.plm_fork_recent"
+#     bl_description = "Create a new history for this model"
+#
+#     def execute(self, context):
+#         self.report({"INFO"}, "Forked model, you can upload!")
+#         return {"FINISHED"}
 
 
 # Panel: where the button appears
@@ -234,13 +321,13 @@ class TAACK_PT_panel(Panel):
         op_row_connect = layout.row()
         if connected:
             op_row_upload.enabled = True
-            op_row_connect.enabled = False
+            op_row_connect.enabled = True
         else:
             op_row_upload.enabled = False
             op_row_connect.enabled = True
         op_row_connect.operator("taack.plm_fork_connect", icon_value=taackIcons["taack_plm"].icon_id)
         op_row_upload.operator("taack.plm_fork_upload", icon="FILE_REFRESH")
-        layout.operator("taack.plm_fork_recent", icon="COPY_ID")
+        #layout.operator("taack.plm_fork_recent", icon="COPY_ID")
 
 
 # Register/unregister
@@ -249,7 +336,7 @@ classes = (
     TaackPlmProperties,
     TaackPlmConnect,
     TaackPlmUpload,
-    TaackPlmForkRecent,
+    # TaackPlmForkRecent,
     TAACK_PT_panel,
 )
 
@@ -274,3 +361,7 @@ def unregister():
 
 if __name__ == "__main__":
     register()
+
+
+# pip download protobuf --dest ./wheels
+# blender --command extension build
