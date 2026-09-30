@@ -132,7 +132,7 @@ class TaackPlmUpload(Operator):
             plm_file.cTimeNs = s.st_ctime_ns
             plm_file.uTimeNs = s.st_mtime_ns
             plm_file.name = obj.name
-            plm_file.fileName = os.path.basename(filepath)
+            plm_file.fileName = filepath
             #plm_file.lastModifiedDate = str(datetime.datetime.strptime(os.path.getctime(bpy.data.filepath), "%a %b %d %H:%M:%S %Y"))
             #plm_file.lastModifiedBy = str(datetime.datetime.strptime(os.path.getctime(bpy.data.filepath), "%a %b %d %H:%M:%S %Y"))
             plm_file.lastModifiedDate = str(datetime.datetime.fromtimestamp(os.path.getmtime(filepath)).strftime(simpleDateFormat))
@@ -172,7 +172,7 @@ class TaackPlmUpload(Operator):
         plm_file.cTimeNs = s.st_ctime_ns
         plm_file.uTimeNs = s.st_mtime_ns
         plm_file.name = bpy.context.active_object.name
-        plm_file.fileName = os.path.basename(bpy.data.filepath)
+        plm_file.fileName = bpy.data.filepath
         plm_file.createdBy = getpass.getuser()
         plm_file.label = os.path.basename(bpy.data.filepath)
         plm_file.id = bpy.context.active_object['taack_id']
