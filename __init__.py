@@ -155,13 +155,19 @@ class TaackPlmUpload(Operator):
 
     def execute(self, context):
         print("Execute TaackPlmUpload")
+
         global connected
         if not connected:
             self.report({"ERROR"}, "Not connected to the server")
             return {"CANCELLED"}
+
         self.shaOneMap = dict()
         deps = bpy.context.evaluated_depsgraph_get()
         filepath_set = set()
+        wm = context.window_manager
+        progress = 0
+        steps = 10 + 2 * len(deps.ids)
+        wm.progress_begin(0, steps)
         self.create_missing_uuid(bpy.context.active_object, False)
         filepath_set.add(bpy.data.filepath)
         bucket = PlmBuf.Bucket()
@@ -199,6 +205,8 @@ class TaackPlmUpload(Operator):
                     plm_file.externalLink.append(linkName)
                 else:
                     print("linkName2: None ... for " + obj.name)
+            progress += 1
+            wm.progress_update(progress)
 
         # plm_file.fileContent = open(bpy.data.filepath, 'rb').read()
         plm_file.sha1hex = self.compute_file_shaOne(bpy.data.filepath)
@@ -215,6 +223,9 @@ class TaackPlmUpload(Operator):
                              ) as zip_archive:
             zip_archive.writestr("proto.bin", bucket.SerializeToString())
 
+        progress += 10
+        wm.progress_update(progress)
+
         data = {"ajax": 'true'}
         f2 = open(zip_filename, 'rb')
 
@@ -230,10 +241,11 @@ class TaackPlmUpload(Operator):
             if respBucket.status == PlmBuf.ServerStatus.OK_PROTO:
                 for serverSha1File in respBucket.serverSha1Files:
                     if serverSha1File in self.shaOneMap:
+                        progress += 1
+                        wm.progress_update(progress)
                         print("Removing:" + self.shaOneMap.pop(serverSha1File) + " from files to upload ... " + serverSha1File)
                     else:
                         print("NO KEY:" + serverSha1File + " ... ")
-
                 nbItems = len(self.shaOneMap.items())
                 nb16Interval = nbItems // 16
                 print("nbItems: " + str(nbItems))
@@ -246,6 +258,8 @@ class TaackPlmUpload(Operator):
                                 if len(self.shaOneMap) > 0:
                                     eShaOne, filename = self.shaOneMap.popitem()
                                     zip_archive.write(filename, eShaOne)
+                                    progress += 1
+                                    wm.progress_update(progress)
 
                         try:
                             f2 = open(zip_filename, 'rb')
@@ -259,8 +273,9 @@ class TaackPlmUpload(Operator):
                         except Exception as ex:
                             self.report({"ERROR"}, "Server seems to be disconnected ... ")
                             connected = False
-
+                wm.progress_update(steps)
                 r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/reset', data=data)
+                wm.progress_end()
                 return {"FINISHED"}
             else:
                 self.report({"ERROR"}, "Message does not successfully sent: " + r.json()["message"])
