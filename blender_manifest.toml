@@ -1,8 +1,8 @@
 schema_version = "1.0.0"
 
 id = "taack_plm_blender"
-version = "1.0.0"
-name = "Sync Blender File With Taack PLM"
+version = "0.0.2"
+name = "Sync Blender Files With Taack PLM"
 tagline = "Upload, Version"
 maintainer = "Taack"
 type = "add-on"
