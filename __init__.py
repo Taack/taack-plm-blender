@@ -93,8 +93,6 @@ class TaackPlmUpload(Operator):
         else :
             if 'taack_id' not in obj :
                 obj['taack_id'] = uuid4
-            else:
-                obj['taack_id'] = obj['taack_id'] + '/' + uuid4
 
         print("create_missing_uuid " + obj['taack_id'])
 
@@ -126,9 +124,9 @@ class TaackPlmUpload(Operator):
             plm_file.id = obj['taack_id']
             plm_file.label = obj.filepath
             if obj.filepath.endswith(".blend"):
-                subprocess.run(["blender-thumbnailer", filepath, "preview/br.png"])
-                plm_file.filePreview = open("preview/br.png", 'rb').read()
-
+                subprocess.run(["blender-thumbnailer", filepath, "taack-preview/br.png"])
+                plm_file.filePreview = open("taack-preview/br.png", 'rb').read()
+                os.remove("taack-preview/br.png")
 
             s = os.stat(filepath)
             plm_file.cTimeNs = s.st_ctime_ns
@@ -149,12 +147,6 @@ class TaackPlmUpload(Operator):
             raise ValueError("createLinkProtobuf Error")
 
         return obj.name
-
-    def create_thumbnail(self, scene):
-        scene.render.image_settings.file_format = 'WEBP'
-        scene.render.filepath = "preview/br.webp"
-        bpy.ops.render.opengl(write_still=True)
-        return open("preview/br.webp", 'rb').read()
 
 
     def execute(self, context):
@@ -184,7 +176,12 @@ class TaackPlmUpload(Operator):
         plm_file.createdBy = getpass.getuser()
         plm_file.label = os.path.basename(bpy.data.filepath)
         plm_file.id = bpy.context.active_object['taack_id']
-        plm_file.filePreview = self.create_thumbnail(bpy.context.scene)
+
+        bpy.context.scene.render.image_settings.file_format = 'WEBP'
+        bpy.context.scene.render.filepath = "taack-preview/br.webp"
+        bpy.ops.render.opengl(write_still=True)
+        plm_file.filePreview = open("taack-preview/br.webp", 'rb').read()
+        os.remove("taack-preview/br.webp")
         plm_file.lastModifiedDate = str(datetime.datetime.fromtimestamp(os.path.getmtime(bpy.data.filepath)).strftime(simpleDateFormat))
         plm_file.createdDate = str(datetime.datetime.fromtimestamp(os.path.getctime(bpy.data.filepath)).strftime(simpleDateFormat))
 
@@ -212,6 +209,7 @@ class TaackPlmUpload(Operator):
             progress += 1
             wm.progress_update(progress)
 
+        os.rmdir("taack-preview")
         # plm_file.fileContent = open(bpy.data.filepath, 'rb').read()
         plm_file.sha1hex = self.compute_file_shaOne(bpy.data.filepath)
         bucket.plmFiles[plm_file.name].CopyFrom(plm_file)
@@ -237,6 +235,7 @@ class TaackPlmUpload(Operator):
         try:
             r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/uploadProto', files={'proto.bin': f2}, data=data)
             f2.close()
+            os.remove(zip_filename)
 
             respBytes = BytesIO(r.content).read()
             respBucket = PlmBuf.Bucket()
@@ -268,6 +267,8 @@ class TaackPlmUpload(Operator):
                         try:
                             f2 = open(zip_filename, 'rb')
                             r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/uploadZip', files={'proto.bin': f2}, data=data)
+                            f2.close()
+                            os.remove(zip_filename)
                             respBytes = BytesIO(r.content).read()
                             respBucket = PlmBuf.Bucket()
                             respBucket.ParseFromString(respBytes)
