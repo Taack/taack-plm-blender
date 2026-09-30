@@ -28,3 +28,9 @@ Connect to the PLM and update blender files:
 Server Details View:
 
 ![server](https://raw.githubusercontent.com/Taack/taack-plm-blender/refs/heads/main/blender-taack-plm-webview.webp)
+
+1. Current Version Preview
+2. File links
+3. Previous Versions
+
+If you edit the file, it should track the versioning at each sync. Links also gets updated.
