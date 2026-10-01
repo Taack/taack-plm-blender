@@ -1,5 +1,5 @@
 import bpy, os, requests, uuid, sys, getpass, json, datetime, time, zipfile, subprocess
-import hashlib
+import hashlib, tempfile
 
 from bpy.props import (StringProperty,
                        PointerProperty,
@@ -279,7 +279,7 @@ class TaackPlmUpload(Operator):
                             connected = False
                         finally:
                             zip_files_file.close()
-                            os.remove(zip_proto_filename)
+                            #os.remove(zip_proto_filename)
                 wm.progress_update(steps)
                 r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/reset', data=data)
                 wm.progress_end()
@@ -292,7 +292,8 @@ class TaackPlmUpload(Operator):
             connected = False
         finally:
             zip_proto_file.close()
-            os.remove(zip_proto_filename)
+            #os.remove(zip_proto_filename)
+            tmp_zip_dir.cleanup()
 
 
 # class TaackPlmForkRecent(Operator):
