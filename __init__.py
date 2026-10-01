@@ -220,64 +220,66 @@ class TaackPlmUpload(Operator):
             self.report({"ERROR"}, "Filset path set is empty")
             return {"CANCELLED"}
 
-        zip_filename = "tmp-blender-proto-" + str(round(time.time() * 1000)) + ".zip"
-        with zipfile.ZipFile(file=zip_filename, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
-                             ) as zip_archive:
-            zip_archive.writestr("proto.bin", bucket.SerializeToString())
+        tmp_zip_dir = tempfile.TemporaryDirectory()
+        print("tmp_zip_dir: " + tmp_zip_dir.name)
+        zip_proto_filename = os.path.join(tmp_zip_dir.name, "tmp-blender-proto-" + str(round(time.time() * 1000)) + ".zip")
+
+        with zipfile.ZipFile(file=zip_proto_filename, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+                             ) as zip_proto_archive:
+            zip_proto_archive.writestr("proto.bin", bucket.SerializeToString())
 
         progress += 10
         wm.progress_update(progress)
 
         data = {"ajax": 'true'}
-        f2 = open(zip_filename, 'rb')
+        zip_proto_file = open(zip_proto_filename, 'rb')
 
         taack_prefs = context.preferences.addons[TaackPlmPreferences.bl_idname].preferences
         try:
-            r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/uploadProto', files={'proto.bin': f2}, data=data)
-            f2.close()
-            os.remove(zip_filename)
+            r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/uploadProto', files={'proto.bin': zip_proto_file}, data=data)
 
-            respBytes = BytesIO(r.content).read()
-            respBucket = PlmBuf.Bucket()
-            respBucket.ParseFromString(respBytes)
+            resp_bytes = BytesIO(r.content).read()
+            resp_bucket = PlmBuf.Bucket()
+            resp_bucket.ParseFromString(resp_bytes)
 
-            if respBucket.status == PlmBuf.ServerStatus.OK_PROTO:
-                for serverSha1File in respBucket.serverSha1Files:
+            if resp_bucket.status == PlmBuf.ServerStatus.OK_PROTO:
+                for serverSha1File in resp_bucket.serverSha1Files:
                     if serverSha1File in self.shaOneMap:
                         progress += 1
                         wm.progress_update(progress)
                         print("Removing:" + self.shaOneMap.pop(serverSha1File) + " from files to upload ... " + serverSha1File)
                     else:
                         print("NO KEY:" + serverSha1File + " ... ")
-                nbItems = len(self.shaOneMap.items())
-                nb16Interval = nbItems // 16
-                print("nbItems: " + str(nbItems))
-                if nbItems > 0:
-                    for i in range(nb16Interval + 1):
-                        zip_filename = "tmp-blender-16files" + str(i) + "-" + str(round(time.time() * 1000)) + ".zip"
-                        with zipfile.ZipFile(file=zip_filename, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+                nb_items = len(self.shaOneMap.items())
+                nb16_interval = nb_items // 16
+                print("nbItems: " + str(nb_items))
+                if nb_items > 0:
+                    for i in range(nb16_interval + 1):
+                        zip_files_filename = os.path.join(tmp_zip_dir.name, "tmp-blender-16files" + str(i) + "-" + str(round(time.time() * 1000)) + ".zip")
+                        with zipfile.ZipFile(file=zip_files_filename, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
                                              ) as zip_archive:
                             for j in range(16):
                                 if len(self.shaOneMap) > 0:
-                                    eShaOne, filename = self.shaOneMap.popitem()
-                                    zip_archive.write(filename, eShaOne)
+                                    e_sha_one, filename = self.shaOneMap.popitem()
+                                    zip_archive.write(filename, e_sha_one)
                                     progress += 1
                                     wm.progress_update(progress)
 
+                        zip_files_file = open(zip_files_filename, 'rb')
                         try:
-                            f2 = open(zip_filename, 'rb')
-                            r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/uploadZip', files={'proto.bin': f2}, data=data)
-                            f2.close()
-                            os.remove(zip_filename)
-                            respBytes = BytesIO(r.content).read()
-                            respBucket = PlmBuf.Bucket()
-                            respBucket.ParseFromString(respBytes)
-                            if respBucket.status != PlmBuf.ServerStatus.OK_FILES:
+                            r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/uploadZip', files={'proto.bin': zip_files_file}, data=data)
+                            resp_bytes = BytesIO(r.content).read()
+                            resp_bucket = PlmBuf.Bucket()
+                            resp_bucket.ParseFromString(resp_bytes)
+                            if resp_bucket.status != PlmBuf.ServerStatus.OK_FILES:
                                 self.report({"ERROR"}, "Message does not successfully sent: " + r.json()["message"])
                                 return {"CANCELLED"}
                         except Exception as ex:
                             self.report({"ERROR"}, "Server seems to be disconnected ... ")
                             connected = False
+                        finally:
+                            zip_files_file.close()
+                            os.remove(zip_proto_filename)
                 wm.progress_update(steps)
                 r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmProto/reset', data=data)
                 wm.progress_end()
@@ -288,6 +290,9 @@ class TaackPlmUpload(Operator):
         except (json.JSONDecodeError, requests.exceptions.ConnectionError) as ex:
             self.report({"ERROR"}, "Server seems to be disconnected ... ")
             connected = False
+        finally:
+            zip_proto_file.close()
+            os.remove(zip_proto_filename)
 
 
 # class TaackPlmForkRecent(Operator):
