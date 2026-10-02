@@ -9,7 +9,6 @@ from bpy.types import (Panel,
                        PropertyGroup,
                        Operator,
                        )
-from PIL import Image
 from io import BytesIO
 import bpy.utils.previews
 
@@ -164,7 +163,8 @@ class TaackPlmUpload(Operator):
         progress = 0
         steps = 10 + 2 * len(deps.ids)
         wm.progress_begin(0, steps)
-        self.create_missing_uuid(bpy.context.active_object, False)
+        self.create_missing_uuid(bpy.context.scene, False)
+        bpy.ops.wm.save_mainfile()
         filepath_set.add(bpy.data.filepath)
         bucket = PlmBuf.Bucket()
         plm_file = PlmBuf.PlmFile()
@@ -175,7 +175,7 @@ class TaackPlmUpload(Operator):
         plm_file.fileName = bpy.data.filepath
         plm_file.createdBy = getpass.getuser()
         plm_file.label = os.path.basename(bpy.data.filepath)
-        plm_file.id = bpy.context.active_object['taack_id']
+        plm_file.id = bpy.context.scene['taack_id']
 
         bpy.context.scene.render.image_settings.file_format = 'WEBP'
         bpy.context.scene.render.filepath = "taack-preview/br.webp"

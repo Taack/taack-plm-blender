@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "taack_plm_blender"
-version = "0.0.3"
+version = "0.0.4"
 name = "Sync Blender Files With Taack PLM"
 tagline = "Upload, Version"
 maintainer = "Taack"
@@ -15,7 +15,7 @@ license = [
 
 # pip download protobuf --dest ./wheels
 wheels = [
-   "./wheels/protobuf-7.36.2-cp310-abi3-manylinux2014_x86_64.whl",
+   "protobuf-7.36.2-cp310-abi3-manylinux2014_x86_64.whl",
 ]
 
 [permissions]
