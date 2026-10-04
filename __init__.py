@@ -107,7 +107,7 @@ class TaackPlmUpload(Operator):
         return sha1.hexdigest()
 
 
-    def create_link_protobuf(self, rootpath, obj, bucket):
+    def create_link_protobuf(self, rootpath, obj, bucket, folder):
         print("createLinkProtobuf " + obj.name)
         try:
             filepath = os.path.join(rootpath, obj.filepath.replace('//', ''))
@@ -123,9 +123,8 @@ class TaackPlmUpload(Operator):
             plm_file.id = obj['taack_id']
             plm_file.label = obj.filepath
             if obj.filepath.endswith(".blend"):
-                subprocess.run(["blender-thumbnailer", filepath, "taack-preview/br.png"])
-                plm_file.filePreview = open("taack-preview/br.png", 'rb').read()
-                os.remove("taack-preview/br.png")
+                subprocess.run(["blender-thumbnailer", filepath, os.path.join(folder, "br.png")])
+                plm_file.filePreview = open(os.path.join(folder, "br.png"), 'rb').read()
 
             s = os.stat(filepath)
             plm_file.cTimeNs = s.st_ctime_ns
@@ -157,6 +156,8 @@ class TaackPlmUpload(Operator):
             return {"CANCELLED"}
 
         self.shaOneMap = dict()
+        tmp_zip_dir = tempfile.TemporaryDirectory()
+
         deps = bpy.context.evaluated_depsgraph_get()
         filepath_set = set()
         wm = context.window_manager
@@ -178,10 +179,10 @@ class TaackPlmUpload(Operator):
         plm_file.id = bpy.context.scene['taack_id']
 
         bpy.context.scene.render.image_settings.file_format = 'WEBP'
-        bpy.context.scene.render.filepath = "taack-preview/br.webp"
+        bpy.context.scene.render.filepath = os.path.join(tmp_zip_dir.name, "br.webp")
         bpy.ops.render.opengl(write_still=True)
-        plm_file.filePreview = open("taack-preview/br.webp", 'rb').read()
-        os.remove("taack-preview/br.webp")
+        plm_file.filePreview = open(bpy.context.scene.render.filepath, 'rb').read()
+        os.remove(bpy.context.scene.render.filepath)
         plm_file.lastModifiedDate = str(datetime.datetime.fromtimestamp(os.path.getmtime(bpy.data.filepath)).strftime(simpleDateFormat))
         plm_file.createdDate = str(datetime.datetime.fromtimestamp(os.path.getctime(bpy.data.filepath)).strftime(simpleDateFormat))
 
@@ -191,7 +192,7 @@ class TaackPlmUpload(Operator):
             if hasattr(obj, 'filepath') and not obj.filepath in filepath_set:
                 filepath_set.add(obj.filepath)
                 self.create_missing_uuid(obj, False)
-                linkName = self.create_link_protobuf(os.path.dirname(bpy.data.filepath), obj, bucket)
+                linkName = self.create_link_protobuf(os.path.dirname(bpy.data.filepath), obj, bucket, tmp_zip_dir.name)
                 if linkName is not None:
                     plm_file.externalLink.append(linkName)
                 else:
@@ -201,7 +202,7 @@ class TaackPlmUpload(Operator):
             if obj.library and not obj.library.filepath in filepath_set:
                 filepath_set.add(obj.library.filepath)
                 self.create_missing_uuid(obj.library, False)
-                linkName = self.create_link_protobuf(os.path.dirname(bpy.data.filepath), obj.library, bucket)
+                linkName = self.create_link_protobuf(os.path.dirname(bpy.data.filepath), obj.library, bucket, tmp_zip_dir.name)
                 if linkName is not None:
                     plm_file.externalLink.append(linkName)
                 else:
@@ -209,7 +210,6 @@ class TaackPlmUpload(Operator):
             progress += 1
             wm.progress_update(progress)
 
-        os.rmdir("taack-preview")
         # plm_file.fileContent = open(bpy.data.filepath, 'rb').read()
         plm_file.sha1hex = self.compute_file_shaOne(bpy.data.filepath)
         bucket.plmFiles[plm_file.name].CopyFrom(plm_file)
@@ -220,7 +220,6 @@ class TaackPlmUpload(Operator):
             self.report({"ERROR"}, "Filset path set is empty")
             return {"CANCELLED"}
 
-        tmp_zip_dir = tempfile.TemporaryDirectory()
         print("tmp_zip_dir: " + tmp_zip_dir.name)
         zip_proto_filename = os.path.join(tmp_zip_dir.name, "tmp-blender-proto-" + str(round(time.time() * 1000)) + ".zip")
 
