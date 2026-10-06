@@ -1,8 +1,8 @@
 schema_version = "1.0.0"
 
-id = "taack_plm_connector"
+id = "taack_plm_blender"
 title = "taack_plm_connector"
-version = "0.0.5"
+version = "0.0.6"
 name = "Sync Files With Taack PLM"
 tagline = "Upload, Version"
 maintainer = "Taack"
