@@ -140,6 +140,7 @@ class TaackPlmSearch(Operator):
                 )
 
                 item = context.scene.custom_collection.add()
+                item.id = part_id
                 item.name = part_name
                 item.creator = part.get("userCreated")
                 item.status = str(part.get("status")["name"])
@@ -152,7 +153,6 @@ class TaackPlmSearch(Operator):
 
         # context.area.tag_redraw()
         return {"FINISHED"}
-
 
 class TaackPlmUpload(Operator):
     bl_label = "Upload To Server"
@@ -373,7 +373,6 @@ class TaackPlmUpload(Operator):
             connected = False
         finally:
             zip_proto_file.close()
-            # os.remove(zip_proto_filename)
             tmp_zip_dir.cleanup()
 
 
@@ -398,35 +397,14 @@ class TAACKMODEL_UL_List(bpy.types.UIList):
         col3.prop(item, "status", text="", emboss=False)
         col4 = col3.split()
         col4.prop(item, "version", text="", emboss=False)
-        # col5 = col4.split(factor=1.0)
-        # col5.prop(item, "date", text="")
 
-
-# --- 4. Opérateurs pour manipuler la liste (Ajout / Suppression) ---
-# class TaackModelServerList_add(bpy.types.Operator):
-#     bl_idname = "custom.collection_add"
-#     bl_label = "Ajouter"
-#
-#     def execute(self, context):
-#         item = context.scene.custom_collection.add()
-#         item.name = f"Élément {len(context.scene.custom_collection)}"
-#         return {'FINISHED'}
-#
-#
-# class TaackModelServerList_remove(bpy.types.Operator):
-#     bl_idname = "custom.collection_remove"
-#     bl_label = "Supprimer"
-#
-#     def execute(self, context):
-#         index = context.scene.custom_index
-#         collection = context.scene.custom_collection
-#         if 0 <= index < len(collection):
-#             collection.remove(index)
-#             context.scene.custom_index = min(max(0, index - 1), len(collection) - 1)
-#         return {'FINISHED'}
+def on_list_index_change(self, context):
+    idx = self.id
+    print("idx: " + str(idx))
 
 
 class TaackModelItem(bpy.types.PropertyGroup):
+    id: bpy.props.IntProperty(default=0, update=on_list_index_change)
     name: StringProperty(name="Name")
     creator: StringProperty(name="Creator")
     status: StringProperty(name="Status")
