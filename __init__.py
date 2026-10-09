@@ -47,13 +47,12 @@ class TaackPlmQueryProperties(PropertyGroup):
     itemStatus: EnumProperty(
         name="Status",
         items=[
-            ('', '', ''),
             ('CREATED', 'Created', ''),
             ('FREE', 'Free', ''),
             ('LOCKED', 'Locked', ''),
             ('OBSOLETE', 'Obsolete', ''),
         ],
-        default=""
+        default='CREATED'
     )
 
 
@@ -82,9 +81,11 @@ class TaackPlmConnect(Operator):
 
         # context.area.tag_redraw()
         return {"FINISHED"}
+
+
 class TaackPlmSearch(Operator):
     bl_label = "Search"
-    bl_idname = "taack.plm_search"
+    bl_idname = "taack.plm_search_model"
     bl_description = "Search model"
 
     def execute(self, context):
@@ -93,16 +94,59 @@ class TaackPlmSearch(Operator):
         taack_prefs = context.preferences.addons[TaackPlmPreferences.bl_idname].preferences
         global connected
 
+        search_text = taack_query_props.itemName
+        tag_name = taack_query_props.itemTags
+        is_my_model = False
+        is_top_assemblies = True
+        model_status = taack_query_props.itemStatus
+
+        if not connected:
+            self.report({"ERROR"}, "Not Connected to the PLM server.")
+            return {"CANCELLED"}
+
         try:
-            r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'login/authenticate', data=data, timeout=5)
-            if r.json()["success"]:
-                connected = True
-                self.report({"INFO"}, "Connected to server: " + taack_prefs.serverUrl)
-            else:
-                self.report({"ERROR"}, "Connection failed: " + r.json()["message"])
-                connected = False
+            data = {
+                "label": search_text,
+                "documentCategory.tags.name": tag_name,
+                "status": model_status,
+                "isMyModel": is_my_model,
+                "isTopAssembly": is_top_assemblies,
+            }
+            r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmJson/queryModel',
+                                          data=data, timeout=30)
+
+            r.raise_for_status()
+
+            parts = r.json()
+
+            if not isinstance(parts, list):
+                self.report({"ERROR"}, "Return value from the server is not a list.")
+                return {"CANCELLED"}
+
+            row_index = 0
+            for part in parts:
+
+                print('Part: ' + str(part))
+                if not isinstance(part, dict):
+                    continue
+                part_id = part.get("id")
+                part_name = (
+                        part.get("originalName") or
+                        part.get("name") or
+                        part.get("label") or
+                        str(part_id)
+                )
+
+                item = context.scene.custom_collection.add()
+                item.name = part_name
+                item.creator = part.get("userCreated")
+                item.status = str(part.get("status"))
+                item.version = part.get("computedVersion")
+                item.date = str(part.get("plmFileLastUpdated"))
+
         except:
             self.report({"ERROR"}, "Connection failed with an unexpected error: " + str(sys.exc_info()[0]))
+            return {"CANCELLED"}
 
         # context.area.tag_redraw()
         return {"FINISHED"}
@@ -347,39 +391,50 @@ class TAACKMODEL_UL_List(bpy.types.UIList):
         col1 = row.split(factor=0.40)
         col1.prop(item, "name", text="", emboss=False, icon='OBJECT_DATAMODE')
         col2 = col1.split(factor=0.50)
-        col2.prop(item, "value", text="")
+        col2.prop(item, "creator", text="")
         col3 = col2.split(factor=1.0)
-        col3.prop(item, "is_active", text="")
+        col3.prop(item, "status", text="")
+        col4 = col3.split(factor=1.0)
+        col4.prop(item, "version", text="")
+        col5 = col4.split(factor=1.0)
+        col5.prop(item, "date", text="")
 
 
 # --- 4. Opérateurs pour manipuler la liste (Ajout / Suppression) ---
-class TaackModelServerList_add(bpy.types.Operator):
-    bl_idname = "custom.collection_add"
-    bl_label = "Ajouter"
-
-    def execute(self, context):
-        item = context.scene.custom_collection.add()
-        item.name = f"Élément {len(context.scene.custom_collection)}"
-        return {'FINISHED'}
-
-
-class TaackModelServerList_remove(bpy.types.Operator):
-    bl_idname = "custom.collection_remove"
-    bl_label = "Supprimer"
-
-    def execute(self, context):
-        index = context.scene.custom_index
-        collection = context.scene.custom_collection
-        if 0 <= index < len(collection):
-            collection.remove(index)
-            context.scene.custom_index = min(max(0, index - 1), len(collection) - 1)
-        return {'FINISHED'}
+# class TaackModelServerList_add(bpy.types.Operator):
+#     bl_idname = "custom.collection_add"
+#     bl_label = "Ajouter"
+#
+#     def execute(self, context):
+#         item = context.scene.custom_collection.add()
+#         item.name = f"Élément {len(context.scene.custom_collection)}"
+#         return {'FINISHED'}
+#
+#
+# class TaackModelServerList_remove(bpy.types.Operator):
+#     bl_idname = "custom.collection_remove"
+#     bl_label = "Supprimer"
+#
+#     def execute(self, context):
+#         index = context.scene.custom_index
+#         collection = context.scene.custom_collection
+#         if 0 <= index < len(collection):
+#             collection.remove(index)
+#             context.scene.custom_index = min(max(0, index - 1), len(collection) - 1)
+#         return {'FINISHED'}
 
 
 class TaackModelItem(bpy.types.PropertyGroup):
-    name: bpy.props.StringProperty(name="Nom", default="Objet")
-    value: bpy.props.FloatProperty(name="Valeur", default=0.0)
-    is_active: bpy.props.BoolProperty(name="Actif", default=True)
+    name: StringProperty(name="Name")
+    creator: StringProperty(name="Creator")
+    status: EnumProperty(name="Status", items=[
+        ('CREATED', 'Created', ''),
+        ('FREE', 'Free', ''),
+        ('LOCKED', 'Locked', ''),
+        ('OBSOLETE', 'Obsolete', ''),
+    ])
+    version: StringProperty(name="Version")
+    date: StringProperty(name="Last Modified")
 
 
 # Panel: where the button appears
@@ -426,6 +481,7 @@ classes = (
     TaackPlmQueryProperties,
     TaackPlmConnect,
     TaackPlmUpload,
+    TaackPlmSearch,
     # TaackPlmForkRecent,
     TAACKMODEL_UL_List,
     TAACK_PT_panel,
