@@ -271,7 +271,7 @@ class TaackPlmUpload(Operator):
                             resp_bucket = PlmBuf.Bucket()
                             resp_bucket.ParseFromString(resp_bytes)
                             if resp_bucket.status != PlmBuf.ServerStatus.OK_FILES:
-                                self.report({"ERROR"}, "Message does not successfully sent: " + r.json()["message"])
+                                self.report({"ERROR"}, resp_bucket.uploadError)
                                 return {"CANCELLED"}
                         except Exception as ex:
                             self.report({"ERROR"}, "Server seems to be disconnected ... ")
@@ -284,7 +284,7 @@ class TaackPlmUpload(Operator):
                 wm.progress_end()
                 return {"FINISHED"}
             else:
-                self.report({"ERROR"}, "Message does not successfully sent: " + r.json()["message"])
+                self.report({"ERROR"}, resp_bucket.uploadError)
                 return {"CANCELLED"}
         except (json.JSONDecodeError, requests.exceptions.ConnectionError) as ex:
             self.report({"ERROR"}, "Server seems to be disconnected ... ")
