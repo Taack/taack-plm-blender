@@ -3,6 +3,7 @@ import hashlib, tempfile
 
 from bpy.props import (StringProperty,
                        PointerProperty,
+                       BoolProperty,
                        EnumProperty,
                        )
 
@@ -22,7 +23,7 @@ taackIcons = bpy.utils.previews.new()
 taackIntranetSession = requests.session()
 connected = None
 simpleDateFormat = "%Y-%m-%dT%H:%M:%SZ"
-
+selectedPart = None
 
 class TaackPlmPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__ if __package__ else os.path.splitext(os.path.basename(__file__))[0]
@@ -40,10 +41,11 @@ class TaackPlmPreferences(bpy.types.AddonPreferences):
 class TaackPlmProperties(PropertyGroup):
     password: StringProperty(name="Password", subtype="PASSWORD", description="Password ...")
 
-
 class TaackPlmQueryProperties(PropertyGroup):
     itemName: StringProperty(name="Name", description="Name Of The Item Pattern")
     itemTags: StringProperty(name="Tags")
+    isMyModel: BoolProperty(name="My Model")
+    isTopAssemblies: BoolProperty(name="Is Top Assemblies")
     itemStatus: EnumProperty(
         name="Status",
         items=[
@@ -82,6 +84,58 @@ class TaackPlmConnect(Operator):
         # context.area.tag_redraw()
         return {"FINISHED"}
 
+class TaackPlmDownloadOutputDir(Operator):
+    bl_label = "Download"
+    bl_idname = "taack.plm_download_model"
+    bl_description = "Download model"
+    bl_options = {'REGISTER'}
+
+    directory: StringProperty(name="Outdir Path", subtype='DIR_PATH', description="Outdir Path")
+    filter_folder: BoolProperty(default=True, options={"HIDDEN"})
+
+    def invoke(self, context, event):
+        # Open browser, take reference to 'self' read the path to selected
+        # file, put path in predetermined self fields.
+        # See: https://docs.blender.org/api/current/bpy.types.WindowManager.html#bpy.types.WindowManager.fileselect_add
+        context.window_manager.fileselect_add(self)
+        # Tells Blender to hang on for the slow user input
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        print("Donloading in " + self.directory + " idx " + str(selectedPart.id))
+        taack_prefs = context.preferences.addons[TaackPlmPreferences.bl_idname].preferences
+        r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plm/downloadBinPart', data={"id": selectedPart.id}, timeout=5)
+        r.raise_for_status()
+        expected_name = selectedPart.pathOnHost
+        if expected_name:
+            expected_name = os.path.basename(str(expected_name))
+            if not expected_name.lower().endswith(".blend"):
+                expected_name += ".blend"
+            zip_base_name = os.path.splitext(expected_name)[0]
+            zip_path = os.path.join(
+                self.directory,
+                zip_base_name + "-" + str(selectedPart.id) + ".zip"
+            )
+            if os.path.exists(zip_path):
+                timestamp = str(int(time.time()))
+                zip_path = os.path.join(
+                    self.directory,
+                    zip_base_name + "-" + timestamp + ".zip"
+                )
+
+            with open(zip_path, "wb") as f:
+                f.write(r.content)
+
+            with zipfile.ZipFile(zip_path, "r") as zip_file:
+                zip_file.extractall(self.directory)
+                blender_file = os.path.abspath(os.path.join(self.directory, expected_name))
+                bpy.ops.wm.open_mainfile(filepath=blender_file)
+            try:
+                os.remove(zip_path)
+            except OSError:
+                pass
+        return {'FINISHED'}
+
 
 class TaackPlmSearch(Operator):
     bl_label = "Search"
@@ -96,8 +150,8 @@ class TaackPlmSearch(Operator):
 
         search_text = taack_query_props.itemName
         tag_name = taack_query_props.itemTags
-        is_my_model = False
-        is_top_assemblies = True
+        is_my_model = taack_query_props.isMyModel
+        is_top_assemblies = taack_query_props.isTopAssemblies
         model_status = taack_query_props.itemStatus
 
         if not connected:
@@ -109,8 +163,8 @@ class TaackPlmSearch(Operator):
                 "label": search_text,
                 "documentCategory.tags.name": tag_name,
                 "status": model_status,
-                "isMyModel": is_my_model,
-                "isTopAssembly": is_top_assemblies,
+                "isMyModel": "true" if is_my_model else "false",
+                "isTopAssembly": "true" if is_top_assemblies else "false",
             }
             r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plmJson/queryModel',
                                           data=data, timeout=30)
@@ -128,7 +182,6 @@ class TaackPlmSearch(Operator):
             row_index = 0
             for part in parts:
 
-                print('Part: ' + str(part))
                 if not isinstance(part, dict):
                     continue
                 part_id = part.get("id")
@@ -143,6 +196,7 @@ class TaackPlmSearch(Operator):
                 item.id = part_id
                 item.name = part_name
                 item.creator = part.get("userCreated")
+                item.pathOnHost = part.get("pathOnHost")
                 item.status = str(part.get("status")["name"])
                 item.version = str(part.get("computedVersion"))
                 # item.date = str(part.get("plmFileLastUpdated"))
@@ -376,16 +430,6 @@ class TaackPlmUpload(Operator):
             tmp_zip_dir.cleanup()
 
 
-# class TaackPlmForkRecent(Operator):
-#     bl_label = "Duplicate History"
-#     bl_idname = "taack.plm_fork_recent"
-#     bl_description = "Create a new history for this model"
-#
-#     def execute(self, context):
-#         self.report({"INFO"}, "Forked model, you can upload!")
-#         return {"FINISHED"}
-
-
 class TAACKMODEL_UL_List(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         row = layout.row(align=True)
@@ -399,14 +443,17 @@ class TAACKMODEL_UL_List(bpy.types.UIList):
         col4.prop(item, "version", text="", emboss=False)
 
 def on_list_index_change(self, context):
-    idx = self.id
-    print("idx: " + str(idx))
+    global selectedPart
+    selectedPart = self
+    print("idx: " + str(selectedPart))
+
 
 
 class TaackModelItem(bpy.types.PropertyGroup):
     id: bpy.props.IntProperty(default=0, update=on_list_index_change)
     name: StringProperty(name="Name")
     creator: StringProperty(name="Creator")
+    pathOnHost: StringProperty(name="PathOnHost")
     status: StringProperty(name="Status")
     version: StringProperty(name="Version")
     date: StringProperty(name="Last Modified")
@@ -445,7 +492,11 @@ class TAACK_PT_panel(Panel):
             layout.prop(taack_query_props, 'itemName')
             layout.prop(taack_query_props, 'itemTags')
             layout.prop(taack_query_props, 'itemStatus')
-            layout.operator("taack.plm_search_model", icon="FILE_REFRESH")
+            col = layout.column(align=True)
+            col.prop(taack_query_props, 'isMyModel')
+            col.prop(taack_query_props, 'isTopAssemblies')
+            layout.operator("taack.plm_search_model", icon="ADD")
+            layout.operator("taack.plm_download_model", icon="FILEBROWSER")
 
 
 # Register/unregister
@@ -456,6 +507,7 @@ classes = (
     TaackPlmQueryProperties,
     TaackPlmConnect,
     TaackPlmUpload,
+    TaackPlmDownloadOutputDir,
     TaackPlmSearch,
     # TaackPlmForkRecent,
     TAACKMODEL_UL_List,
