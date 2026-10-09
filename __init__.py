@@ -23,7 +23,7 @@ taackIcons = bpy.utils.previews.new()
 taackIntranetSession = requests.session()
 connected = None
 simpleDateFormat = "%Y-%m-%dT%H:%M:%SZ"
-selectedPart = None
+
 
 class TaackPlmPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__ if __package__ else os.path.splitext(os.path.basename(__file__))[0]
@@ -40,6 +40,7 @@ class TaackPlmPreferences(bpy.types.AddonPreferences):
 
 class TaackPlmProperties(PropertyGroup):
     password: StringProperty(name="Password", subtype="PASSWORD", description="Password ...")
+
 
 class TaackPlmQueryProperties(PropertyGroup):
     itemName: StringProperty(name="Name", description="Name Of The Item Pattern")
@@ -84,6 +85,7 @@ class TaackPlmConnect(Operator):
         # context.area.tag_redraw()
         return {"FINISHED"}
 
+
 class TaackPlmDownloadOutputDir(Operator):
     bl_label = "Download"
     bl_idname = "taack.plm_download_model"
@@ -102,9 +104,11 @@ class TaackPlmDownloadOutputDir(Operator):
         return {'RUNNING_MODAL'}
 
     def execute(self, context):
-        print("Donloading in " + self.directory + " idx " + str(selectedPart.id))
+        scene = context.scene
+        selectedPart = scene.custom_collection[scene.custom_index]
         taack_prefs = context.preferences.addons[TaackPlmPreferences.bl_idname].preferences
-        r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plm/downloadBinPart', data={"id": selectedPart.id}, timeout=5)
+        r = taackIntranetSession.post(url=taack_prefs.serverUrl + 'plm/downloadBinPart', data={"id": selectedPart.id},
+                                      timeout=5)
         r.raise_for_status()
         expected_name = selectedPart.pathOnHost
         if expected_name:
@@ -181,7 +185,7 @@ class TaackPlmSearch(Operator):
 
             row_index = 0
             for part in parts:
-
+                print("part: " + str(part))
                 if not isinstance(part, dict):
                     continue
                 part_id = part.get("id")
@@ -207,6 +211,7 @@ class TaackPlmSearch(Operator):
 
         # context.area.tag_redraw()
         return {"FINISHED"}
+
 
 class TaackPlmUpload(Operator):
     bl_label = "Upload To Server"
@@ -442,18 +447,12 @@ class TAACKMODEL_UL_List(bpy.types.UIList):
         col4 = col3.split()
         col4.prop(item, "version", text="", emboss=False)
 
-def on_list_index_change(self, context):
-    global selectedPart
-    selectedPart = self
-    print("idx: " + str(selectedPart))
-
-
 
 class TaackModelItem(bpy.types.PropertyGroup):
-    id: bpy.props.IntProperty(default=0, update=on_list_index_change)
+    id: bpy.props.IntProperty(name="Id")
     name: StringProperty(name="Name")
     creator: StringProperty(name="Creator")
-    pathOnHost: StringProperty(name="PathOnHost")
+    pathOnHost: StringProperty(name="Path On Host")
     status: StringProperty(name="Status")
     version: StringProperty(name="Version")
     date: StringProperty(name="Last Modified")
