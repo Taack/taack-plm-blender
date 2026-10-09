@@ -123,6 +123,8 @@ class TaackPlmSearch(Operator):
                 self.report({"ERROR"}, "Return value from the server is not a list.")
                 return {"CANCELLED"}
 
+            context.scene.custom_collection.clear()
+
             row_index = 0
             for part in parts:
 
@@ -140,12 +142,12 @@ class TaackPlmSearch(Operator):
                 item = context.scene.custom_collection.add()
                 item.name = part_name
                 item.creator = part.get("userCreated")
-                item.status = str(part.get("status"))
-                item.version = part.get("computedVersion")
-                item.date = str(part.get("plmFileLastUpdated"))
+                item.status = str(part.get("status")["name"])
+                item.version = str(part.get("computedVersion"))
+                # item.date = str(part.get("plmFileLastUpdated"))
 
-        except:
-            self.report({"ERROR"}, "Connection failed with an unexpected error: " + str(sys.exc_info()[0]))
+        except AttributeError as e:
+            self.report({"ERROR"}, "Reading server results Failed: " + str(e))
             return {"CANCELLED"}
 
         # context.area.tag_redraw()
@@ -388,16 +390,16 @@ class TaackPlmUpload(Operator):
 class TAACKMODEL_UL_List(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         row = layout.row(align=True)
-        col1 = row.split(factor=0.40)
-        col1.prop(item, "name", text="", emboss=False, icon='OBJECT_DATAMODE')
-        col2 = col1.split(factor=0.50)
-        col2.prop(item, "creator", text="")
-        col3 = col2.split(factor=1.0)
-        col3.prop(item, "status", text="")
-        col4 = col3.split(factor=1.0)
-        col4.prop(item, "version", text="")
-        col5 = col4.split(factor=1.0)
-        col5.prop(item, "date", text="")
+        col1 = row.split()
+        col1.prop(item, "name", emboss=False, text="")
+        col2 = col1.split()
+        col2.prop(item, "creator", text="", emboss=False)
+        col3 = col2.split()
+        col3.prop(item, "status", text="", emboss=False)
+        col4 = col3.split()
+        col4.prop(item, "version", text="", emboss=False)
+        # col5 = col4.split(factor=1.0)
+        # col5.prop(item, "date", text="")
 
 
 # --- 4. Opérateurs pour manipuler la liste (Ajout / Suppression) ---
@@ -427,12 +429,7 @@ class TAACKMODEL_UL_List(bpy.types.UIList):
 class TaackModelItem(bpy.types.PropertyGroup):
     name: StringProperty(name="Name")
     creator: StringProperty(name="Creator")
-    status: EnumProperty(name="Status", items=[
-        ('CREATED', 'Created', ''),
-        ('FREE', 'Free', ''),
-        ('LOCKED', 'Locked', ''),
-        ('OBSOLETE', 'Obsolete', ''),
-    ])
+    status: StringProperty(name="Status")
     version: StringProperty(name="Version")
     date: StringProperty(name="Last Modified")
 
